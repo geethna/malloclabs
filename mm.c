@@ -39,12 +39,13 @@ void *global_base = NULL;
 struct block_meta *current;
 
 void *request_space(size_t size){
-    void *p = sbrk(ALIGN(size));
-    if(p == (void*)-1)
+    void *p = mem_sbrk(ALIGN(size));
+    if (p == (void *)-1)
         return NULL;
     return p;
 }
 void *find_space(size_t size){
+    size = ALIGN(size);
     current = global_base;
     while(current && !current->free && current->size>=size){
         current = current->next;
@@ -66,33 +67,31 @@ int mm_init(void)
  */
 void *mm_malloc(size_t size)
 {
-    void *block;
-    if(size <= 0)
+    if(size<=0)
         return NULL;
-    if(!global_base){        //first call to malloc
-        block = request_space(size);
-        if(!block)
-            return NULL;
-        global_base = block;
-        current = global_base;
-        current->size = ALIGN(size);
-        current->next = NULL;
-        current->free = 0;      //0 indicated in-use
-      }
+    void *block = request_space(size);
+    if(block == (void*)-1)
+        return NULL;
+    if(!global_base){      //first call to malloc
+    current = block;
+    current->size = ALIGN(size);
+    current->next = NULL;
+    current->free = 0;
+    }
     else{
-        block = find_space(size);
-        if(!block){
-            block = request_space(size);
-            if(!block)
-                return NULL;
-          }
-        current->next = block;
-        current = current->next;
-        current->size = ALIGN(size);
-        current->next = NULL;
-        current->free = 0;
-        }
-      return current;
+    void *block = find_space(size);
+    if(!block){
+        block = request_space(size);
+        if(block == (void*)-1)
+            return NULL;
+    }
+    current->next = block;
+    current = current->next;
+    current->size = ALIGN(size);
+    current->next = NULL;
+    current->free = 0;
+    }
+    return current;
 }
 
 /*
