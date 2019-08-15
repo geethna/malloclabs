@@ -28,7 +28,8 @@ team_t team = {
 #define SIZE_T_SIZE (ALIGN(sizeof(block_meta)))
 #define is_free(size) (size&0x00000000)
 #define BLOCK_MEM(ptr) ((void *)((unsigned long)ptr + sizeof(block_meta)))
-#define get_chunk(p) (p - (void *)SIZE_T_SIZE)
+#define BLOCK_HEADER(ptr) ((void *)((unsigned long)ptr - sizeof(block_t)))
+#define get_chunk(p) ((char *)p -SIZE_T_SIZE)
 
 typedef struct block_meta {
   size_t size;
@@ -37,7 +38,7 @@ typedef struct block_meta {
 }block_meta;
 
 int start_size = 0x1000;
-void *free_base = NULL;
+struct block_meta *free_base;
 struct block_meta *current;
 struct block_meta *free_list;
 
@@ -47,6 +48,7 @@ void *request_space(size_t size){
         return NULL;
     return p;
 }
+
 void *del(block_meta *ptr){
     if(!ptr->prev){         //if its head
         if(ptr->next){      //if its not the only chunk in the list
@@ -68,8 +70,43 @@ void *del(block_meta *ptr){
 void *add(block_meta *ptr){
     ptr->next = NULL;
     ptr->prev = NULL;
-    return NULL;
+    if(!free_base || (unsigned long)free_base > (unsigned long)ptr){
+        if(free_base){
+            free_base->prev = ptr;
+        }
+        ptr->next = free_base;
+        free_base = ptr;
+    }
+    else{
+        block_meta *curr = free_base;
+        while(curr->next && (unsigned long)curr->next < (unsigned long) ptr){
+            curr = curr->next;
+        }
+        ptr->next = curr->next;
+        curr->next = ptr;
+    }
+        return NULL;
 }
+
+void *merge(){
+    block_meta *curr;
+    while(curr->next){
+        unsigned long *curr_p = (unsigned long)curr;
+        unsigned long *curr_n = (unsigned long)curr->next;
+        if(curr_p + curr->size + SIZE_T_SIZE == curr_n){
+            curr->size = curr->next->size + SIZE_T_SIZE;
+            curr->next = curr->next->next;
+            if(curr->next)
+                curr->next->prev = curr;
+        }
+        else{
+            break;
+        }
+        curr = curr->next;
+    }
+        return NULL;
+  }
+
 void *split(block_meta *block,size_t size){
     void *mem_block = BLOCK_MEM(block);
     block_meta *newptr = (block_meta *) ((unsigned long)mem_block + size);
@@ -77,16 +114,17 @@ void *split(block_meta *block,size_t size){
     block->size = size;
     return newptr;
 }
+
 void *find_space(size_t size){
     size = ALIGN(size);
     block_meta *block;
     block = free_base;
     while(block){
-        if(block->size>=size+SIZE_T_SIZE){
+        if(block->size >= size+SIZE_T_SIZE){
             del(block);
             if(block->size == size)
                 return block;
-            void *newptr = split(block,size);
+            block_meta *newptr = split(block,size);
             add(newptr);        //adding the split chunk to the free_list
             return block;     //returning the chunk we got
         }
@@ -97,9 +135,6 @@ void *find_space(size_t size){
     return NULL;
 }
 
-/*
- * mm_init - initialize the malloc package.
- */
 int mm_init(void)
 {
     return 0;
@@ -121,30 +156,17 @@ void *mm_malloc(size_t size)
             return NULL;
       }
     current = (block_meta *)block;
-    current->size = ALIGN(size+IN_USE);
+    current->size = ALIGN(size);
     current->next = NULL;
     current->prev = NULL;
     return (void *)((char *)current+SIZE_T_SIZE);
 }
 
-/*
- * mm_free - Freeing a block does nothing.
- */
-
 void mm_free(void *ptr)
 {
     ptr = (void *)get_chunk(ptr);
-    if(!free_base){
-        free_base = ptr;
-        free_list = free_base;
-    }
-    else{
-        free_list->next = ptr;
-        free_list = free_list->next;
-    }
-    free_list->size = free_list->size - IN_USE;
-    free_list->next = NULL;
-    merge(free_base);
+    add(ptr);
+    merge();
 }
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
