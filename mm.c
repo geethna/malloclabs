@@ -29,18 +29,16 @@ team_t team = {
 #define is_free(size) (size&0x00000000)
 #define BLOCK_MEM(ptr) ((void *)((unsigned long)ptr + sizeof(block_meta)))
 #define BLOCK_HEADER(ptr) ((void *)((unsigned long)ptr - sizeof(block_t)))
-#define get_chunk(p) ((char *)p -SIZE_T_SIZE)
+#define get_chunk(p) (p -SIZE_T_SIZE)
 
 typedef struct block_meta {
-  size_t size;
+  int size;
   struct block_meta *next;
   struct block_meta *prev;
 }block_meta;
 
-int start_size = 0x1000;
 struct block_meta *free_base;
 struct block_meta *current;
-struct block_meta *free_list;
 
 void *request_space(size_t size){
     void *p = mem_sbrk(ALIGN(size));
@@ -70,57 +68,53 @@ void *del(block_meta *ptr){
 void *add(block_meta *ptr){
     ptr->next = NULL;
     ptr->prev = NULL;
-    if(!free_base || (unsigned long)free_base > (unsigned long)ptr){
-        if(free_base){
-            free_base->prev = ptr;
-        }
-        ptr->next = free_base;
+    if(!free_base){
         free_base = ptr;
     }
     else{
         block_meta *curr = free_base;
-        while(curr->next && (unsigned long)curr->next < (unsigned long) ptr){
+        while(curr->next && (unsigned long)curr > (unsigned long) ptr){
             curr = curr->next;
         }
+        if(ptr != curr->next){
         ptr->next = curr->next;
         curr->next = ptr;
+      }
     }
         return NULL;
 }
 
-void *merge(){
-    block_meta *curr;
-    while(curr->next){
-        unsigned long *curr_p = (unsigned long)curr;
-        unsigned long *curr_n = (unsigned long)curr->next;
-        if(curr_p + curr->size + SIZE_T_SIZE == curr_n){
-            curr->size = curr->next->size + SIZE_T_SIZE;
-            curr->next = curr->next->next;
-            if(curr->next)
-                curr->next->prev = curr;
-        }
-        else{
-            break;
-        }
-        curr = curr->next;
-    }
-        return NULL;
-  }
-
-void *split(block_meta *block,size_t size){
-    void *mem_block = BLOCK_MEM(block);
-    block_meta *newptr = (block_meta *) ((unsigned long)mem_block + size);
-    newptr->size = block->size - (size + sizeof(block_meta));
+void *split(block_meta *block,int size){
+    block_meta *newptr = (block_meta *) ((unsigned long)block + size);
+    newptr->size = block->size-size;
     block->size = size;
     return newptr;
 }
 
+void *merge(){
+    block_meta *curr = free_base;
+    while(1){
+        if(!curr->next)
+          break;
+        unsigned long curr_p = (unsigned long)curr;
+        unsigned long curr_n = (unsigned long)curr->next;
+        if(curr_p + curr->size == curr_n){
+            curr->size = curr->size + curr->next->size;
+            del(curr);
+        }
+        if(curr->next)
+            curr = curr->next;
+        else
+            break;
+    }
+        return NULL;
+  }
+
 void *find_space(size_t size){
-    size = ALIGN(size);
     block_meta *block;
     block = free_base;
     while(block){
-        if(block->size >= size+SIZE_T_SIZE){
+        if(block->size >= size){
             del(block);
             if(block->size == size)
                 return block;
@@ -149,14 +143,14 @@ void *mm_malloc(size_t size)
     void *block = NULL;
     if(size<=0)
         return NULL;
-    block = find_space(size);
+    block = find_space(ALIGN(size)+SIZE_T_SIZE);
     if(!block){
         block = request_space(size+SIZE_T_SIZE);
         if(!block)
             return NULL;
-      }
+    }
     current = (block_meta *)block;
-    current->size = ALIGN(size);
+    current->size = ALIGN(size)+SIZE_T_SIZE;
     current->next = NULL;
     current->prev = NULL;
     return (void *)((char *)current+SIZE_T_SIZE);
@@ -174,17 +168,22 @@ void mm_free(void *ptr)
 
 void *mm_realloc(void *ptr, size_t size)
 {
-    void *oldptr = ptr;
-    void *newptr;
-    size_t copySize;
-
-    newptr = mm_malloc(size);
-    if (newptr == NULL)
-      return NULL;
-    copySize = *(size_t *)((char *)oldptr - SIZE_T_SIZE);
-    if (size < copySize)
-      copySize = size;
-    memcpy(newptr, oldptr, copySize);
-    mm_free(oldptr);
-    return newptr;
+    block_meta *free_ptr;
+    if(!ptr)      //realloc should act like malloc
+        return mm_malloc(size);
+    if(size == 0)
+        mm_free(ptr);
+    block_meta *b = get_chunk(ptr);
+    if(b->size >= size + SIZE_T_SIZE){
+      free_ptr = split(b,b->size);
+      add(free_ptr);
+      return ptr;
+    }
+    void *new_ptr;
+    new_ptr = mm_malloc(size);
+    if(!new_ptr)
+        return NULL;
+    memcpy(new_ptr,ptr,b->size);
+    mm_free(ptr);
+    return new_ptr;
 }
