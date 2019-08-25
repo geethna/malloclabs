@@ -34,7 +34,6 @@ team_t team = {
 typedef struct block_meta {
   int size;
   struct block_meta *next;
-  struct block_meta *prev;
 }block_meta;
 
 struct block_meta *free_base;
@@ -48,7 +47,7 @@ void *request_space(size_t size){
 }
 
 void *del(block_meta *ptr){
-    if(!ptr->prev){         //if its head
+    if(ptr == free_base){         //if its head
         if(ptr->next){      //if its not the only chunk in the list
             free_base = ptr->next;
         }
@@ -57,17 +56,17 @@ void *del(block_meta *ptr){
         }
     }
     else{                   //if its the last chunk
-        ptr->prev->next = ptr->next;
+    block_meta *curr = free_base;           //if its in the middle
+    while(curr->next != ptr){
+        curr = curr->next;
     }
-    if(ptr->next){          //if its in the middle
-        ptr->next->prev = ptr->prev;
+    curr->next = ptr->next;
     }
     return NULL;
 }
 
 void *add(block_meta *ptr){
     ptr->next = NULL;
-    ptr->prev = NULL;
     if(!free_base){
         free_base = ptr;
     }
@@ -131,6 +130,7 @@ void *find_space(size_t size){
 
 int mm_init(void)
 {
+    free_base = NULL;
     return 0;
 }
 
@@ -152,7 +152,6 @@ void *mm_malloc(size_t size)
     current = (block_meta *)block;
     current->size = ALIGN(size)+SIZE_T_SIZE;
     current->next = NULL;
-    current->prev = NULL;
     return (void *)((char *)current+SIZE_T_SIZE);
 }
 
