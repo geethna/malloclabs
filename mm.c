@@ -90,21 +90,26 @@ void *split(block_meta *block,int size){
     return newptr;
 }
 
-void *merge(){
+void *merge(block_meta *ptr){
+    unsigned long curr_p = (unsigned long)ptr;
+    unsigned long curr_n = (unsigned long)ptr->next;
+    if(curr_p + ptr->size == curr_n){
+          ptr->size = ptr->size + ptr->next->size;
+          del(ptr->next);
+      }
+    if(ptr == free_base){         //if its head
+        return NULL;
+    }
+    else{
     block_meta *curr = free_base;
-    while(1){
-        if(!curr->next)
-          break;
-        unsigned long curr_p = (unsigned long)curr;
-        unsigned long curr_n = (unsigned long)curr->next;
-        if(curr_p + curr->size == curr_n){
-            curr->size = curr->size + curr->next->size;
-            del(curr);
-        }
-        if(curr->next)
-            curr = curr->next;
-        else
-            break;
+    while(curr->next != ptr){
+        curr = curr->next;
+    }
+    unsigned long curr_pr = (unsigned long)curr;
+    if(curr_pr + curr->size == curr_p){
+          curr->size = curr->size + ptr->size;
+          del(curr->next);
+      }
     }
         return NULL;
   }
@@ -159,7 +164,7 @@ void mm_free(void *ptr)
 {
     ptr = (void *)get_chunk(ptr);
     add(ptr);
-    merge();
+    merge(ptr);
 }
 /*
  * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
@@ -174,7 +179,7 @@ void *mm_realloc(void *ptr, size_t size)
         mm_free(ptr);
     block_meta *b = get_chunk(ptr);
     if(b->size >= size + SIZE_T_SIZE){
-      free_ptr = split(b,b->size);
+      free_ptr = split(b,size+SIZE_T_SIZE);
       add(free_ptr);
       return ptr;
     }
